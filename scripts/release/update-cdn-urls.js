@@ -5,43 +5,47 @@
  * NPM package manifest. Does nothing if the README.md is already up-to-date.
  */
 
-const fs = require("fs");
-const path = require("path");
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import process from 'node:process';
+import {getDirnameFromImportMeta} from '../../sdk.mjs';
 
-const rootDir = path.resolve(__dirname, "..", "..");
-const packageJsonFile = path.resolve(rootDir, "package.json");
-const readmeFile = path.resolve(rootDir, "README.md");
+const __dirname = getDirnameFromImportMeta(import.meta.url);
 
-function getMajorVersion(semVerVersion) {
-  const majorVersionAsString = semVerVersion.split('.')[0];
-  return parseInt(majorVersionAsString);
-}
+const rootDirectory = path.resolve(__dirname, '..', '..');
+const packageJsonFile = path.resolve(rootDirectory, 'package.json');
+const readmeFile = path.resolve(rootDirectory, 'README.md');
 
-function getManifest() {
-  const manifestRaw = fs.readFileSync(packageJsonFile).toString();
+const getMajorVersion = (semVersion) => {
+  const majorVersionAsString = semVersion.split('.')[0];
+  return Number.parseInt(majorVersionAsString, 10);
+};
+
+const getManifest = async () => {
+  const manifestRaw = await fs.readFile(packageJsonFile, 'utf8');
   return JSON.parse(manifestRaw);
-}
+};
 
-function updateVersionInReadmeIfNecessary(majorVersion) {
-  let content = fs.readFileSync(readmeFile).toString();
+const updateVersionInReadmeIfNecessary = async (majorVersion) => {
+  let content = await fs.readFile(readmeFile, 'utf8');
 
-  content = content.replace(
-    /simple-icons@v[0-9]+/g,
+  content = content.replaceAll(
+    /simple-icons@v\d+/g,
     `simple-icons@v${majorVersion}`,
   );
 
-  fs.writeFileSync(readmeFile, content);
-}
+  await fs.writeFile(readmeFile, content);
+};
 
-function main() {
+const main = async () => {
   try {
-    const manifest = getManifest();
+    const manifest = await getManifest();
     const majorVersion = getMajorVersion(manifest.version);
-    updateVersionInReadmeIfNecessary(majorVersion);
+    await updateVersionInReadmeIfNecessary(majorVersion);
   } catch (error) {
-    console.error("Failed to update CDN version number:", error);
+    console.error('Failed to update CDN version number:', error);
     process.exit(1);
   }
-}
+};
 
-main();
+await main();

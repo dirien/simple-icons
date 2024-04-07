@@ -5,16 +5,9 @@
  * linters (e.g. jsonlint/svglint).
  */
 
-const fs = require("fs");
-const path = require("path");
-
-const { diffLinesUnified } = require("jest-diff");
-
-const UTF8 = "utf8";
-
-const rootDir = path.resolve(__dirname, "..", "..");
-const dataFile = path.resolve(rootDir, "_data", "simple-icons.json");
-const data = require(dataFile);
+import process from 'node:process';
+import fakeDiff from 'fake-diff';
+import {collator, getIconsDataString, normalizeNewlines} from '../../sdk.mjs';
 
 /**
  * Contains our tests so they can be isolated from each other.
@@ -22,62 +15,89 @@ const data = require(dataFile);
  */
 const TESTS = {
   /* Tests whether our icons are in alphabetical order */
-  alphabetical: function() {
+  alphabetical(data) {
     const collector = (invalidEntries, icon, index, array) => {
       if (index > 0) {
-        const prev = array[index - 1];
-        const compare = icon.title.localeCompare(prev.title);
-        if (compare < 0) {
+        const previous = array[index - 1];
+        const comparison = collator.compare(icon.title, previous.title);
+        if (comparison < 0) {
           invalidEntries.push(icon);
-        } else if (compare === 0) {
-          if (prev.slug) {
-            if (!icon.slug || icon.slug.localeCompare(prev.slug) < 0) {
-              invalidEntries.push(icon);
-            }
-          }
+        } else if (
+          comparison === 0 &&
+          previous.slug &&
+          (!icon.slug || collator.compare(icon.slug, previous.slug) < 0)
+        ) {
+          invalidEntries.push(icon);
         }
       }
+
       return invalidEntries;
     };
-    const format = icon => {
+
+    const format = (icon) => {
       if (icon.slug) {
         return `${icon.title} (${icon.slug})`;
       }
+
       return icon.title;
     };
 
+    // eslint-disable-next-line unicorn/no-array-reduce, unicorn/no-array-callback-reference
     const invalids = data.icons.reduce(collector, []);
-    if (invalids.length) {
+    if (invalids.length > 0) {
       return `Some icons aren't in alphabetical order:
-        ${invalids.map(icon => format(icon)).join(", ")}`;
+        ${invalids.map((icon) => format(icon)).join(', ')}`;
     }
   },
 
   /* Check the formatting of the data file */
-  prettified: function() {
-    const dataString = fs.readFileSync(dataFile, UTF8).replace(/\r\n/g, '\n');
-    const dataPretty = `${JSON.stringify(data, null, "    ")}\n`;
-    if (dataString !== dataPretty) {
-      const dataDiff = diffLinesUnified(
-        dataString.split("\n"),
-        dataPretty.split("\n"),
-        {
-          expand: false,
-          omitAnnotationLines: true
-        },
-      );
+  prettified(data, dataString) {
+    const normalizedDataString = normalizeNewlines(dataString);
+    const dataPretty = `${JSON.stringify(data, null, 4)}\n`;
 
+    if (normalizedDataString !== dataPretty) {
+      const dataDiff = fakeDiff(normalizedDataString, dataPretty);
       return `Data file is formatted incorrectly:\n\n${dataDiff}`;
     }
-  }
+  },
+
+  /* Check redundant trailing slash in URL */
+  checkUrl(data) {
+    const hasRedundantTrailingSlash = (url) => {
+      const {origin} = new global.URL(url);
+      return /^\/+$/.test(url.replace(origin, ''));
+    };
+
+    const allUrlFields = [
+      ...new Set(
+        data.icons
+          .flatMap((icon) => [icon.source, icon.guidelines, icon.license?.url])
+          .filter(Boolean),
+      ),
+    ];
+
+    const invalidUrls = allUrlFields.filter((url) =>
+      hasRedundantTrailingSlash(url),
+    );
+
+    if (invalidUrls.length > 0) {
+      return `Some URLs have a redundant trailing slash:\n\n${invalidUrls.join(
+        '\n',
+      )}`;
+    }
+  },
 };
 
-// execute all tests and log all errors
-const errors = Object.keys(TESTS)
-  .map(k => TESTS[k]())
+const dataString = await getIconsDataString();
+const data = JSON.parse(dataString);
+
+const errors = (
+  await Promise.all(Object.values(TESTS).map((test) => test(data, dataString)))
+)
+  // eslint-disable-next-line unicorn/no-await-expression-member
   .filter(Boolean);
 
 if (errors.length > 0) {
-  errors.forEach(error => console.error(`\u001b[31m${error}\u001b[0m`));
+  for (const error of errors) console.error(`\u001B[31m${error}\u001B[0m`);
   process.exit(1);
 }
