@@ -1,12 +1,10 @@
-FROM node:16-alpine
-
-RUN apk add --no-cache \
-  git
-
+FROM node:24-alpine AS base
+RUN apk add --no-cache git
 WORKDIR /simple-icons
-COPY package*.json /simple-icons/
-RUN npm install
 
+FROM base AS final
+WORKDIR /simple-icons
 COPY . .
+RUN npm ci --no-audit --no-fund
 
-ENTRYPOINT ["npm", "run", "svgo", "--", "/image.svg"]
+ENTRYPOINT ["npx", "svgo", "/image.svg"]
